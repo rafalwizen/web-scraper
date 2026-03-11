@@ -14,6 +14,8 @@ class Settings:
         self.output_file = os.getenv('OUTPUT_FILE', 'emails.txt')
         # Delay between requests (seconds)
         self.delay = float(os.getenv('DELAY', '1.0'))
+        # Max pages to scrape
+        self.max_pages = int(os.getenv('MAX_PAGES', '50'))
 
     def __getattr__(self, name: str) -> Any:
         """Get attribute value"""

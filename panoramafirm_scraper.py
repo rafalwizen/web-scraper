@@ -18,6 +18,14 @@ def is_valid_email(email: str) -> bool:
     return bool(re.match(pattern, email))
 
 
+def is_valid_url(url: str) -> bool:
+    """Check if URL is valid"""
+    if not url:
+        return False
+    # Simple URL validation
+    return url.startswith('http://') or url.startswith('https://')
+
+
 class PanoramaFirmScraper:
     """Class for scraping emails from panoramafirm.pl"""
 
@@ -43,15 +51,15 @@ class PanoramaFirmScraper:
             url += f"?page={page}"
         return url
 
-    def scrape_emails_from_page(self, page: int = 1) -> List[str]:
+    def scrape_emails_from_page(self, page: int = 1) -> List[tuple]:
         """
-        Scrape emails from a single page
+        Scrape emails and websites from a single page
 
         Args:
             page: Page number
 
         Returns:
-            List of found emails
+            List of tuples (website, email)
         """
         url = self.build_url(page)
         print(f"Fetching page: {url}")
@@ -64,69 +72,82 @@ class PanoramaFirmScraper:
             return []
 
         soup = BeautifulSoup(response.content, 'lxml')
-        emails = []
+        results = []
 
-        # Find all links with data-popup-param-email attribute
-        email_links = soup.find_all('a', attrs={'data-popup-param-email': True})
+        # Find all website links with data-ga="l-www"
+        website_links = soup.find_all('a', attrs={'data-ga': 'l-www'})
 
-        for link in email_links:
-            email = link.get('data-popup-param-email')
-            # Email validation - skip "brak" and invalid formats
-            if email and is_valid_email(email) and email not in emails:
-                emails.append(email)
-                print(f"  Found email: {email}")
-            elif email and not is_valid_email(email):
-                print(f"  Skipped invalid email: {email}")
+        for website_link in website_links:
+            website = website_link.get('href')
+            if not website or not is_valid_url(website):
+                continue
 
-        return emails
+            # Find the parent element containing both website and email
+            parent = website_link.find_parent()
+            if not parent:
+                continue
 
-    def scrape_all_emails(self) -> List[str]:
+            # Find email link in the same parent container
+            email_link = parent.find('a', attrs={'data-popup-param-email': True})
+            email = email_link.get('data-popup-param-email') if email_link else None
+
+            # Validate both website and email
+            if is_valid_email(email):
+                results.append((website, email))
+                print(f"  Found: {website} | {email}")
+            elif email:
+                print(f"  Skipped invalid email: {email} (www: {website})")
+
+        return results
+
+    def scrape_all_emails(self) -> List[tuple]:
         """
-        Scrape emails from all pages
+        Scrape emails and websites from all pages
 
         Returns:
-            List of all found emails
+            List of all found (website, email) tuples
         """
-        all_emails = []
+        all_results = []
         page = 1
+        max_pages = settings.max_pages
 
         while True:
-            emails = self.scrape_emails_from_page(page)
+            results = self.scrape_emails_from_page(page)
 
-            if not emails:
-                print(f"No emails found on page {page}, finishing...")
+            if not results:
+                print(f"No results found on page {page}, finishing...")
                 break
 
-            all_emails.extend(emails)
-            print(f"Collected {len(all_emails)} unique emails total")
+            all_results.extend(results)
+            print(f"Collected {len(all_results)} results total")
 
             # Delay between requests
             time.sleep(self.delay)
 
             page += 1
 
-            # Safety limit - max 50 pages
-            if page > 50:
-                print("Reached 50 page limit, finishing...")
+            # Safety limit - max pages from settings
+            if page > max_pages:
+                print(f"Reached {max_pages} page limit, finishing...")
                 break
 
-        return all_emails
+        return all_results
 
-    def save_to_file(self, emails: List[str], filename: str = None) -> None:
+    def save_to_file(self, results: List[tuple], filename: str = None) -> None:
         """
-        Save emails to file
+        Save websites and emails to file in format: www,email
 
         Args:
-            emails: List of emails to save
+            results: List of (website, email) tuples to save
             filename: Filename (default from settings)
         """
         if filename is None:
             filename = settings.output_file
 
-        print(f"\nSaving {len(emails)} emails to file: {filename}")
+        print(f"\nSaving {len(results)} results to file: {filename}")
         with open(filename, 'w', encoding='utf-8') as f:
-            for email in sorted(set(emails)):
-                f.write(f"{email}\n")
+            for website, email in sorted(set(results)):
+                f.write(f"{website},{email}\n")
 
         print(f"Saved successfully!")
 
@@ -134,22 +155,23 @@ class PanoramaFirmScraper:
 def main():
     """Main function"""
     print("=" * 60)
-    print("Email scraper for panoramafirm.pl")
+    print("Website and email scraper for panoramafirm.pl")
     print("=" * 60)
     print(f"Search category: {settings.search_category}")
     print(f"Base URL: {settings.base_url}")
     print(f"Delay: {settings.delay}s")
+    print(f"Max pages: {settings.max_pages}")
     print("=" * 60)
     print()
 
     scraper = PanoramaFirmScraper()
-    emails = scraper.scrape_all_emails()
+    results = scraper.scrape_all_emails()
 
-    if emails:
-        scraper.save_to_file(emails)
-        print(f"\nCompleted! Found {len(emails)} unique emails.")
+    if results:
+        scraper.save_to_file(results)
+        print(f"\nCompleted! Found {len(results)} results.")
     else:
-        print("\nNo emails found.")
+        print("\nNo results found.")
 
 
 if __name__ == "__main__":

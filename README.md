@@ -1,6 +1,6 @@
-# PanoramaFirm Email Scraper
+# PanoramaFirm Website and Email Scraper
 
-Email scraper for panoramafirm.pl service.
+Website and email scraper for panoramafirm.pl service.
 
 ## Installation
 
@@ -19,6 +19,7 @@ cp .env.example .env
 - `BASE_URL` - base URL (default `https://panoramafirm.pl`)
 - `OUTPUT_FILE` - output file name (default `emails.txt`)
 - `DELAY` - delay between requests in seconds (default `1.0`)
+- `MAX_PAGES` - maximum number of pages to scrape (default `50`)
 
 ## Usage
 
@@ -27,13 +28,24 @@ Run the scraper:
 python panoramafirm_scraper.py
 ```
 
+## Output Format
+
+The scraper saves data in format: `www,email`
+```
+http://example.com,email@example.com
+http://website.pl,info@website.pl
+```
+
 ## How it works
 
 The scraper:
 1. Visits URL: `https://panoramafirm.pl/{SEARCH_CATEGORY}`
-2. Searches the page for elements with `data-popup-param-email` attribute
-3. Saves found emails to file
-4. Moves to next pages if available
+2. Searches the page for business cards with both website and email
+3. Extracts website URLs from `data-ga="l-www"` links
+4. Extracts emails from `data-popup-param-email` attributes
+5. Validates both website and email formats
+6. Saves pairs (website,email) to file
+7. Moves to next pages if available
 
 ## Category Examples
 
@@ -44,6 +56,7 @@ The scraper:
 
 ## Notes
 
-- The scraper only extracts visible emails from business cards
-- Default limit is 50 pages (can be changed in code)
+- The scraper only extracts visible data from business cards
+- Default limit is 50 pages (can be changed in `.env` file)
+- Only business cards with valid website AND email are saved
 - Remember to comply with website terms and legal scraping guidelines
