@@ -260,7 +260,7 @@ class PanoramaFirmScraper:
         """
         all_results = []
         page = 1
-        max_pages = 3  # Temporary: limit to 3 pages for testing
+        max_pages = settings.max_pages
 
         while True:
             results = self.scrape_emails_from_page(page)
