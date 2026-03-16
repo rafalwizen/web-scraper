@@ -1,6 +1,13 @@
 import os
 from typing import Any
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars
+
 
 class Settings:
     """Simple configuration class"""
