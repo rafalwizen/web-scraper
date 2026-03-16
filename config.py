@@ -23,6 +23,10 @@ class Settings:
         self.delay = float(os.getenv('DELAY', '1.0'))
         # Max pages to scrape
         self.max_pages = int(os.getenv('MAX_PAGES', '50'))
+        # Headless mode
+        self.headless = os.getenv('HEADLESS', 'false').lower() == 'true'
+        # Browser type
+        self.browser_type = os.getenv('BROWSER_TYPE', 'chromium')
 
     def __getattr__(self, name: str) -> Any:
         """Get attribute value"""

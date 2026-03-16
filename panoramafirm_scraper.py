@@ -164,7 +164,8 @@ class PanoramaFirmScraper:
     def start_browser(self):
         """Start Playwright browser"""
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=False)
+        browser = getattr(self.playwright, settings.browser_type)
+        self.browser = browser.launch(headless=settings.headless)
         self.page = self.browser.new_page()
 
     def stop_browser(self):
