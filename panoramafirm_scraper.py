@@ -3,7 +3,6 @@ Email scraper for panoramafirm.pl
 """
 import time
 import re
-from typing import List
 from playwright.sync_api import sync_playwright, Page, Browser
 from bs4 import BeautifulSoup
 from config import settings
@@ -182,7 +181,7 @@ class PanoramaFirmScraper:
             url += f"?page={page}"
         return url
 
-    def scrape_emails_from_page(self, page: int = 1) -> List[tuple]:
+    def scrape_emails_from_page(self, page: int = 1) -> dict:
         """
         Scrape emails and websites from a single page
 
@@ -190,7 +189,12 @@ class PanoramaFirmScraper:
             page: Page number
 
         Returns:
-            List of tuples (website, email)
+            Dictionary with categorized results:
+            {
+                'only_websites': [websites],
+                'only_emails': [emails],
+                'both': [(website, email)]
+            }
         """
         url = self.build_url(page)
         print(f"Fetching page: {url}")
@@ -199,7 +203,7 @@ class PanoramaFirmScraper:
             self.page.goto(url, wait_until='networkidle', timeout=30000)
         except Exception as e:
             print(f"Error loading page: {e}")
-            return []
+            return {'only_websites': [], 'only_emails': [], 'both': []}
 
         # Handle cookie popup if present
         accept_cookies(self.page)
@@ -210,21 +214,15 @@ class PanoramaFirmScraper:
         # Get page content and parse with BeautifulSoup
         content = self.page.content()
         soup = BeautifulSoup(content, 'lxml')
-        results = []
 
-        # Debug: check what's on the page
-        all_links = soup.find_all('a', attrs={'data-ga': True})
-        data_ga_values = set([link.get('data-ga') for link in all_links])
-        print(f"  DEBUG: Found {len(all_links)} links with data-ga attribute")
-        print(f"  DEBUG: Unique data-ga values: {data_ga_values}")
+        results = {
+            'only_websites': [],
+            'only_emails': [],
+            'both': []
+        }
 
-        # Check for captcha form
-        captcha_forms = soup.find_all('form')
-        print(f"  DEBUG: Found {len(captcha_forms)} forms on page")
-        for form in captcha_forms:
-            inputs = form.find_all('input', attrs={'type': 'submit'})
-            for inp in inputs:
-                print(f"  DEBUG: Found submit input: value='{inp.get('value')}', id='{inp.get('id')}'")
+        # Track processed companies to avoid duplicates
+        processed_parents = set()
 
         # Find all website links with data-ga="l-www"
         website_links = soup.find_all('a', attrs={'data-ga': 'l-www'})
@@ -239,39 +237,91 @@ class PanoramaFirmScraper:
             if not parent:
                 continue
 
+            # Skip if we already processed this parent
+            parent_id = str(parent)
+            if parent_id in processed_parents:
+                continue
+            processed_parents.add(parent_id)
+
             # Find email link in the same parent container
             email_link = parent.find('a', attrs={'data-popup-param-email': True})
             email = email_link.get('data-popup-param-email') if email_link else None
 
-            # Validate both website and email
+            # Categorize the result
             if is_valid_email(email):
-                results.append((website, email))
+                results['both'].append((website, email))
                 print(f"  Found: {website} | {email}")
-            elif email:
-                print(f"  Skipped invalid email: {email} (www: {website})")
+            else:
+                results['only_websites'].append(website)
+                print(f"  Found website only: {website}")
+
+        # Also find emails that don't have websites
+        email_links = soup.find_all('a', attrs={'data-popup-param-email': True})
+        processed_emails = set()
+
+        for email_link in email_links:
+            email = email_link.get('data-popup-param-email')
+            if not is_valid_email(email):
+                continue
+
+            # Skip if this email is already in 'both' category
+            for _, both_email in results['both']:
+                if both_email == email:
+                    continue
+
+            # Check if this email already has a website
+            has_website = False
+            for website, both_email in results['both']:
+                if both_email == email:
+                    has_website = True
+                    break
+
+            if not has_website and email not in processed_emails:
+                results['only_emails'].append(email)
+                processed_emails.add(email)
+                print(f"  Found email only: {email}")
 
         return results
 
-    def scrape_all_emails(self) -> List[tuple]:
+    def scrape_all_emails(self) -> dict:
         """
         Scrape emails and websites from all pages
 
         Returns:
-            List of all found (website, email) tuples
+            Dictionary with categorized results:
+            {
+                'only_websites': [websites],
+                'only_emails': [emails],
+                'both': [(website, email)]
+            }
         """
-        all_results = []
+        all_results = {
+            'only_websites': [],
+            'only_emails': [],
+            'both': []
+        }
         page = 1
         max_pages = settings.max_pages
 
         while True:
-            results = self.scrape_emails_from_page(page)
+            page_results = self.scrape_emails_from_page(page)
 
-            if not results:
+            # Check if all categories are empty
+            if (not page_results['only_websites'] and
+                not page_results['only_emails'] and
+                not page_results['both']):
                 print(f"No results found on page {page}, finishing...")
                 break
 
-            all_results.extend(results)
-            print(f"Collected {len(all_results)} results total")
+            # Merge results
+            all_results['only_websites'].extend(page_results['only_websites'])
+            all_results['only_emails'].extend(page_results['only_emails'])
+            all_results['both'].extend(page_results['both'])
+
+            total_results = (len(all_results['only_websites']) +
+                           len(all_results['only_emails']) +
+                           len(all_results['both']))
+            print(f"Collected {total_results} results total ({len(all_results['only_websites'])} websites, {len(all_results['only_emails'])} emails, {len(all_results['both'])} both)")
 
             # Delay between requests
             time.sleep(self.delay)
@@ -285,23 +335,47 @@ class PanoramaFirmScraper:
 
         return all_results
 
-    def save_to_file(self, results: List[tuple], filename: str = None) -> None:
+    def save_to_file(self, results: dict) -> None:
         """
-        Save websites and emails to file in format: www,email
+        Save websites and emails to categorized files
 
         Args:
-            results: List of (website, email) tuples to save
-            filename: Filename (default from settings)
+            results: Dictionary with categorized results:
+            {
+                'only_websites': [websites],
+                'only_emails': [emails],
+                'both': [(website, email)]
+            }
         """
-        if filename is None:
-            filename = settings.output_file
+        print(f"\nSaving results to files...")
 
-        print(f"\nSaving {len(results)} results to file: {filename}")
-        with open(filename, 'w', encoding='utf-8') as f:
-            for website, email in sorted(set(results)):
+        # Save only websites
+        with open('resultOnlyWebsites.txt', 'w', encoding='utf-8') as f:
+            for website in sorted(set(results['only_websites'])):
+                f.write(f"{website}\n")
+        print(f"Saved {len(set(results['only_websites']))} websites to resultOnlyWebsites.txt")
+
+        # Save only emails
+        with open('resultOnlyEmail.txt', 'w', encoding='utf-8') as f:
+            for email in sorted(set(results['only_emails'])):
+                f.write(f"{email}\n")
+        print(f"Saved {len(set(results['only_emails']))} emails to resultOnlyEmail.txt")
+
+        # Save both website and email
+        with open('resultWebAndEmail.txt', 'w', encoding='utf-8') as f:
+            for website, email in sorted(set(results['both'])):
                 f.write(f"{website},{email}\n")
+        print(f"Saved {len(set(results['both']))} website,email pairs to resultWebAndEmail.txt")
 
-        print(f"Saved successfully!")
+        # Save all unique websites
+        all_websites = results['only_websites'] + [website for website, _ in results['both']]
+        unique_websites = sorted(set(all_websites))
+        with open('websites.txt', 'w', encoding='utf-8') as f:
+            for website in unique_websites:
+                f.write(f"{website}\n")
+        print(f"Saved {len(unique_websites)} unique websites to websites.txt")
+
+        print(f"\nAll files saved successfully!")
 
 
 def main():
@@ -322,9 +396,17 @@ def main():
         scraper.start_browser()
         results = scraper.scrape_all_emails()
 
-        if results:
+        # Check if any results were found
+        total_results = (len(results['only_websites']) +
+                       len(results['only_emails']) +
+                       len(results['both']))
+
+        if total_results > 0:
             scraper.save_to_file(results)
-            print(f"\nCompleted! Found {len(results)} results.")
+            print(f"\nCompleted! Found {total_results} results total:")
+            print(f"  - {len(results['only_websites'])} websites only")
+            print(f"  - {len(results['only_emails'])} emails only")
+            print(f"  - {len(results['both'])} both website and email")
         else:
             print("\nNo results found.")
     finally:
