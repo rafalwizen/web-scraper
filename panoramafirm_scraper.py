@@ -306,12 +306,7 @@ class PanoramaFirmScraper:
         while True:
             page_results = self.scrape_emails_from_page(page)
 
-            # Check if all categories are empty
-            if (not page_results['only_websites'] and
-                not page_results['only_emails'] and
-                not page_results['both']):
-                print(f"No results found on page {page}, finishing...")
-                break
+            # Continue even if no results on this page - some pages may be empty
 
             # Merge results
             all_results['only_websites'].extend(page_results['only_websites'])
